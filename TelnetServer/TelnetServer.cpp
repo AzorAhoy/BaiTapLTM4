@@ -41,6 +41,8 @@ char tmp[64];
 char errorMsg[] = "Syntax Error. Please try again.\n";
 
 char sendBuf[256];
+char fileBuf[256];
+char cmdBuf[256];
 char targetID[64];
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
@@ -197,8 +199,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 			SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
 				0, (LPARAM)clientBuf);
-			clients[numClients] = client;
-			numClients++;
+
 			WSAAsyncSelect(client, hWnd, WM_SOCKET, FD_READ | FD_CLOSE);
 		}
 
@@ -208,8 +209,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			int ret = recv(wParam, buf, sizeof(buf), 0);
 
 			buf[ret] = 0;
-			SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-				0, (LPARAM)buf);
+			//SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
+				//0, (LPARAM)buf);
 			// Kiem tra trang thai cua client
 			// Va xu ly du lieu theo trang thai tuong ung
 
@@ -225,61 +226,103 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				ret = sscanf(buf, "%s %s %s", cmd, id, tmp);
 				if (ret == 2)
 				{
-					if (strcmp(cmd, "client_id:") == 0)
+					int found = 0;
+					FILE *f = fopen("users.txt", "r");
+					while (fgets(fileBuf, sizeof(fileBuf), f))
 					{
-						char okMsg[] = "Dung cu phap. Hay nhap thong diep muon gui.\n";
-						SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-							0, (LPARAM)okMsg);
-						send(wParam, okMsg, strlen(okMsg), 0);
-						// Luu client dang nhap thanh cong vao mang
+						printf("%s\n", fileBuf);
+						if (strcmp(buf, fileBuf) == 0)
+						{
+							found = 1;
+							break;
+						}
+					}
+					fclose(f);
+
+					if (found == 1)
+					{
+						char msg[] = "Dang nhap thanh cong. Hay nhap lenh.\n";
+						send(wParam, msg, strlen(msg), 0);
 						registeredClients[registered] = wParam;
 						ids[registered] = (char *)malloc(strlen(id) + 1);
 						memcpy(ids[registered], id, strlen(id) + 1);
 						++registered;
+						break;
 					}
-					else {
-						SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-							0, (LPARAM)errorMsg);
-						send(wParam, errorMsg, strlen(errorMsg), 0);
+					else
+					{
+						char msg[] = "Dang nhap that bai. Hay thu lai.\n";
+						send(wParam, msg, strlen(msg), 0);
 					}
+					clients[numClients] = wParam;
+					numClients++;
 				}
-				else {
-					SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-						0, (LPARAM)errorMsg);
-					send(wParam, errorMsg, strlen(errorMsg), 0);
+				else
+				{
+					char msg[] = "Dang nhap that bai. Hay thu lai.\n";
+					send(wParam, msg, strlen(msg), 0);
 				}
+
 			}
 			else
 			{
 				// Trang thai da dang nhap
-				ret = sscanf(buf, "%s", targetID);
-				if (ret == 1)
+				SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING, 0, (LPARAM)buf);
+				if (buf[ret - 1] == '\n')
 				{
-					if (strcmp(targetID, "all") == 0)
-					{
-						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetID) + 1);
-
-						for (int j = 0; j < registered; j++)
-							if (registeredClients[j] != wParam)
-								send(registeredClients[j], sendBuf, strlen(sendBuf), 0);
-					}
-					else
-					{
-						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetID) + 1);
-
-						for (int j = 0; j < registered; j++)
-							if (strcmp(ids[j], targetID) == 0)
-								send(registeredClients[j], sendBuf, strlen(sendBuf), 0);
-					}
+					buf[ret - 1] = 0;
 				}
-			}
+				//printf("Received from %d: %s\n", clients[i], buf);
 
+				sprintf(cmdBuf, "%s > out1.txt", buf);
+				system(cmdBuf);
+
+				FILE *f = fopen("out1.txt", "r");
+				while (fgets(fileBuf, sizeof(fileBuf), f))
+				{
+					send(wParam, fileBuf, strlen(fileBuf), 0);
+				}
+				fclose(f);
+			}
 		}
 		else if (WSAGETSELECTEVENT(lParam) == FD_CLOSE)
 		{
 			closesocket(wParam);
 			return -1;
 		}
+
+		//for (int i = 0; i < numClients; i++) {
+
+		//	if (WSAGETSELECTEVENT(clients[i]) == FD_READ)
+		//	{
+		//		printf("rferg");
+		//		ret = recv(clients[i], buf, sizeof(buf), 0);
+
+		//		if (ret <= 0)
+		//		{
+		//			// Ket noi bi huy
+		//			continue;
+		//		}
+
+		//		buf[ret] = 0;
+		//		if (buf[ret - 1] == '\n')
+		//		{
+		//			buf[ret - 1] = 0;
+		//		}
+		//		//printf("Received from %d: %s\n", clients[i], buf);
+
+		//		sprintf(cmdBuf, "%s > out1.txt", buf);
+		//		system(cmdBuf);
+
+		//		FILE *f = fopen("out.txt", "r");
+		//		while (fgets(fileBuf, sizeof(fileBuf), f))
+		//		{
+
+		//			send(clients[i], fileBuf, strlen(fileBuf), 0);
+		//		}
+		//		fclose(f);
+		//	}
+		//}
 	}
 	break;
 	case WM_COMMAND:

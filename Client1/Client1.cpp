@@ -83,6 +83,26 @@ BOOL CALLBACK WinProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			buf[ret] = 0;
 			printf("Received: %s\n", buf);
 		}
+
+		else if (WSAGETSELECTEVENT(lParam) == FD_WRITE)
+		{
+			//int ret = recv(client, buf, sizeof(buf), 0);
+
+			//buf[ret] = 0;
+			//printf("Received: %s\n", buf);
+			char buf[256];
+			printf("Nhap du lieu: ");
+			gets_s(buf, sizeof(buf));
+			//char * pch;
+			//pch = strchr(buf, ':');
+			//if (pch != NULL)
+			//{
+			//	printf("found at %d\n", pch - buf + 1);
+			//	//pch = strchr(pch + 1, ':');
+			//	
+			//}
+			send(wParam, buf, strlen(buf), 0);
+		}
 		else if (WSAGETSELECTEVENT(lParam) == FD_CLOSE)
 		{
 			closesocket(wParam);

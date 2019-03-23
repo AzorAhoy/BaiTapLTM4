@@ -260,16 +260,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetID) + 1);
 
 						for (int j = 0; j < registered; j++)
-							if (registeredClients[j] != wParam)
+							if (registeredClients[j] != wParam) {
 								send(registeredClients[j], sendBuf, strlen(sendBuf), 0);
+								SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
+									0, (LPARAM)sendBuf);
+							}
 					}
 					else
 					{
 						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetID) + 1);
 
 						for (int j = 0; j < registered; j++)
-							if (strcmp(ids[j], targetID) == 0)
+							if (strcmp(ids[j], targetID) == 0) {
 								send(registeredClients[j], sendBuf, strlen(sendBuf), 0);
+								SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
+									0, (LPARAM)sendBuf);
+							}
 					}
 				}
 			}
