@@ -5,6 +5,8 @@
 #include "ChatServer.h"
 #include <iostream>
 
+#include "stdio.h"
+
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include "winsock2.h"
 
@@ -17,31 +19,17 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 
+SOCKET registeredClients[64];   // Chua cac client da dang nhap
+int numRegisteredClients = 0;
+char *ids[64];
+
+void RemoveClient(SOCKET, HWND);
+
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
-
-SOCKET clients[64];
-int numClients = 0;
-
-SOCKET registeredClients[64];
-int registered = 0;
-char * ids[64];
-
-int ret;
-
-char buf[256];
-
-char id[64];
-char cmd[64];
-char tmp[64];
-
-char errorMsg[] = "Syntax Error. Please try again.\n";
-
-char sendBuf[256];
-char targetID[64];
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	_In_opt_ HINSTANCE hPrevInstance,
@@ -126,17 +114,23 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	hInst = hInstance; // Store instance handle in our global variable
 
 	HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, 0, 300, 450, nullptr, nullptr, hInstance, nullptr);
+		CW_USEDEFAULT, 0, 370, 450, nullptr, nullptr, hInstance, nullptr);
 
 	if (!hWnd)
 	{
 		return FALSE;
 	}
 
-	// Tao list box
+	ShowWindow(hWnd, nCmdShow);
+	UpdateWindow(hWnd);
+
 	CreateWindowEx(WS_EX_CLIENTEDGE, TEXT("LISTBOX"), TEXT(""),
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOVSCROLL,
 		10, 10, 160, 350, hWnd, (HMENU)IDC_STATIC, GetModuleHandle(NULL), NULL);
+
+	CreateWindowEx(WS_EX_CLIENTEDGE, TEXT("LISTBOX"), TEXT(""),
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOVSCROLL,
+		180, 10, 160, 350, hWnd, (HMENU)IDC_STATIC, GetModuleHandle(NULL), NULL);
 
 	SOCKET listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
@@ -149,9 +143,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	listen(listener, 5);
 
 	WSAAsyncSelect(listener, hWnd, WM_SOCKET, FD_ACCEPT);
-
-	ShowWindow(hWnd, nCmdShow);
-	UpdateWindow(hWnd);
 
 	return TRUE;
 }
@@ -175,50 +166,53 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		if (WSAGETSELECTERROR(lParam))
 		{
 			closesocket(wParam);
-			return DefWindowProc(hWnd, message, wParam, lParam);
+			RemoveClient(wParam, hWnd);
+			break;
 		}
 
 		if (WSAGETSELECTEVENT(lParam) == FD_ACCEPT)
 		{
-			SOCKADDR_IN clientAddr;
-			int clientAddrLen = sizeof(clientAddr);
-
-			SOCKET client = accept(wParam, (SOCKADDR *)&clientAddr, &clientAddrLen);
-
-			char *ip = inet_ntoa(clientAddr.sin_addr);
-
-			char portBuf[8];
-			_itoa(ntohs(clientAddr.sin_port), portBuf, 10);
-
-			char clientBuf[32];
-			strcpy(clientBuf, ip);
-			strcat(clientBuf, ":");
-			strcat(clientBuf, portBuf);
-
-			SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-				0, (LPARAM)clientBuf);
-			clients[numClients] = client;
-			numClients++;
+			SOCKET client = accept(wParam, NULL, NULL);
 			WSAAsyncSelect(client, hWnd, WM_SOCKET, FD_READ | FD_CLOSE);
-		}
 
-		if (WSAGETSELECTEVENT(lParam) == FD_READ)
+			char msg[] = "New client connected";
+			SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING, 0, (LPARAM)msg);
+			SendDlgItemMessageA(hWnd, IDC_STATIC, WM_VSCROLL, SB_BOTTOM, 0);
+		}
+		else if (WSAGETSELECTEVENT(lParam) == FD_READ)
 		{
 			char buf[256];
 			int ret = recv(wParam, buf, sizeof(buf), 0);
+			if (ret <= 0)
+			{
+				closesocket(wParam);
+				RemoveClient(wParam, hWnd);
+				break;
+			}
 
+			// Xu ly du lieu
 			buf[ret] = 0;
-			SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-				0, (LPARAM)buf);
+			SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING, 0, (LPARAM)buf);
+			SendDlgItemMessageA(hWnd, IDC_STATIC, WM_VSCROLL, SB_BOTTOM, 0);
+
 			// Kiem tra trang thai cua client
 			// Va xu ly du lieu theo trang thai tuong ung
 
 			int j = 0;
-			for (; j < registered; j++) {
+			for (; j < numRegisteredClients; j++)
 				if (wParam == registeredClients[j])
 					break;
-			}
-			if (j == registered)
+
+			char cmd[64];
+			char id[64];
+			char tmp[64];
+
+			char errorMsg[] = "Loi cu phap. Hay nhap lai\n";
+
+			char sendBuf[256];
+			char targetId[64];
+
+			if (j == numRegisteredClients)
 			{
 				// Trang thai chua dang nhap
 				// Kiem tra cu phap client_id: [id]
@@ -228,66 +222,55 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					if (strcmp(cmd, "client_id:") == 0)
 					{
 						char okMsg[] = "Dung cu phap. Hay nhap thong diep muon gui.\n";
-						SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-							0, (LPARAM)okMsg);
 						send(wParam, okMsg, strlen(okMsg), 0);
+
 						// Luu client dang nhap thanh cong vao mang
-						registeredClients[registered] = wParam;
-						ids[registered] = (char *)malloc(strlen(id) + 1);
-						memcpy(ids[registered], id, strlen(id) + 1);
-						++registered;
+						registeredClients[numRegisteredClients] = wParam;
+						ids[numRegisteredClients] = (char *)malloc(strlen(id) + 1);
+						memcpy(ids[numRegisteredClients], id, strlen(id) + 1);
+						numRegisteredClients++;
+
+						SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING, 0, (LPARAM)id);
+						SendDlgItemMessageA(hWnd, IDC_STATIC, WM_VSCROLL, SB_BOTTOM, 0);
 					}
-					else {
-						SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-							0, (LPARAM)errorMsg);
+					else
 						send(wParam, errorMsg, strlen(errorMsg), 0);
-					}
 				}
-				else{
-					SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-						0, (LPARAM)errorMsg);
+				else
 					send(wParam, errorMsg, strlen(errorMsg), 0);
-				}
 			}
 			else
 			{
 				// Trang thai da dang nhap
-				ret = sscanf(buf, "%s", targetID);
+				ret = sscanf(buf, "%s", targetId);
 				if (ret == 1)
 				{
-					if (strcmp(targetID, "all") == 0)
+					if (strcmp(targetId, "all") == 0)
 					{
-						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetID) + 1);
+						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetId) + 1);
 
-						for (int j = 0; j < registered; j++)
-							if (registeredClients[j] != wParam) {
+						for (int j = 0; j < numRegisteredClients; j++)
+							if (registeredClients[j] != wParam)
 								send(registeredClients[j], sendBuf, strlen(sendBuf), 0);
-								SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-									0, (LPARAM)sendBuf);
-							}
 					}
 					else
 					{
-						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetID) + 1);
+						sprintf(sendBuf, "%s: %s", ids[j], buf + strlen(targetId) + 1);
 
-						for (int j = 0; j < registered; j++)
-							if (strcmp(ids[j], targetID) == 0) {
+						for (int j = 0; j < numRegisteredClients; j++)
+							if (strcmp(ids[j], targetId) == 0)
 								send(registeredClients[j], sendBuf, strlen(sendBuf), 0);
-								SendDlgItemMessageA(hWnd, IDC_STATIC, LB_ADDSTRING,
-									0, (LPARAM)sendBuf);
-							}
 					}
 				}
 			}
-			
 		}
 		else if (WSAGETSELECTEVENT(lParam) == FD_CLOSE)
 		{
 			closesocket(wParam);
-			return -1;
+			RemoveClient(wParam, hWnd);
+			break;
 		}
 	}
-	break;
 	case WM_COMMAND:
 	{
 		int wmId = LOWORD(wParam);
@@ -340,4 +323,31 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 	}
 	return (INT_PTR)FALSE;
+}
+
+void RemoveClient(SOCKET client, HWND hWnd)
+{
+	// Xoa socket client khoi mang registeredClients
+	int i = 0;
+	for (; i < numRegisteredClients; i++)
+		if (registeredClients[i] == client)
+			break;
+
+	if (i < numRegisteredClients)
+	{
+		// Xoa khoi mang
+		if (i < numRegisteredClients - 1)
+		{
+			for (int j = i; j < numRegisteredClients - 1; j++)
+			{
+				registeredClients[j] = registeredClients[j + 1];
+				ids[j] = ids[j + 1];
+			}
+		}
+
+		numRegisteredClients--;
+
+		// Xoa khoi list box
+		SendDlgItemMessageA(hWnd, IDC_STATIC, LB_DELETESTRING, i, 0);
+	}
 }
